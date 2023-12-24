@@ -2,10 +2,18 @@
 #include <GLFW/glfw3.h>
 
 #include <cassert>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace {
+
+struct ShaderProgramSource {
+    std::string VertexSource;
+    std::string FragmentSource;
+};
+
 constexpr auto winHeight{ 480 };
 constexpr auto winWidth{ 640 };
 constexpr auto winTitle{ "OpenGL Window" };
@@ -13,6 +21,31 @@ constexpr auto winTitle{ "OpenGL Window" };
 void ErrorCallback(int error, const char* msg)
 {
     std::cerr << "GLUT error " << error << ": " << msg << std::endl;
+}
+
+ShaderProgramSource ParseShader(const std::string& filepath)
+{
+    std::ifstream stream(filepath);
+
+    enum class ShaderType { NONE = -1, VERTEX = 0, FRAGMENT = 1 };
+
+    std::string line{};
+    std::stringstream ss[2];
+    ShaderType type = ShaderType::NONE;
+    while (getline(stream, line)) {
+        if (line.find("#shader") != std::string::npos) {
+            if (line.find("vertex") != std::string::npos) {
+                type = ShaderType::VERTEX;
+            } else if (line.find("fragment") != std::string::npos) {
+                type = ShaderType::FRAGMENT;
+            }
+        } else {
+            ss[(int)type] << line << '\n';
+        }
+    }
+
+    return { ss[(int)ShaderType::VERTEX].str(),
+             ss[(int)ShaderType::FRAGMENT].str() };
 }
 
 unsigned int CompileShader(unsigned int type, const std::string& source)
@@ -29,9 +62,9 @@ unsigned int CompileShader(unsigned int type, const std::string& source)
         glGetShaderiv(id, GL_INFO_LOG_LENGTH, &length);
         char* message = (char*)alloca(length * sizeof(*message));
         glGetShaderInfoLog(id, length, &length, message);
-        std::cout << "Failed to compile"
+        std::cout << "Failed to compile: "
                   << (type == GL_VERTEX_SHADER ? "vertex" : "fragment")
-                  << std::endl;
+                  << "shader." << std::endl;
         std::cout << message << std::endl;
         glDeleteShader(id);
         return 0;
@@ -93,7 +126,13 @@ int main(void)
 
     std::cout << glGetString(GL_VERSION) << std::endl;
 
-    float positions[6] = { -0.5f, -0.5f, 0.0f, 0.5f, 0.5f, -0.5f };
+    // clang-format off
+    float positions[6] = {
+        -0.5f, -0.5f,
+         0.5f, -0.5f,
+         0.5f,  0.5f,
+    };
+    // clang-format on
 
     unsigned int vao;
     glGenVertexArrays(1, &vao);
@@ -107,27 +146,9 @@ int main(void)
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0);
 
-    std::string vertexShader
-        = "#version 330 core\n"
-          "\n"
-          "layout(location = 0) in vec4 position;\n"
-          "\n"
-          "void main()\n"
-          "{\n"
-          "   gl_Position = position;\n"
-          "}\n";
-
-    std::string fragmentShader
-        = "#version 330 core\n"
-          "\n"
-          "layout(location = 0) out vec4 color;\n"
-          "\n"
-          "void main()\n"
-          "{\n"
-          "    color = vec4(1.0, 0.0, 0.0, 1.0);\n"
-          "}\n";
-
-    unsigned int shader = CreateShader(vertexShader, fragmentShader);
+    ShaderProgramSource source = ParseShader("res/shaders/Basic.glsl");
+    unsigned int shader
+        = CreateShader(source.VertexSource, source.FragmentSource);
     glUseProgram(shader);
 
     while (!glfwWindowShouldClose(window)) {
@@ -141,6 +162,8 @@ int main(void)
 
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &buffer);
+    glDeleteProgram(shader);
+
     glfwTerminate();
 
     return GLFW_NO_ERROR;
